@@ -12,7 +12,8 @@ def create_new_user():
     USER_MEMORY[user_id] = {
         "created_at": time.time(),
         "name": None,
-        "state": None
+        "state": None,
+        "district": None,
     }
     return user_id
 
@@ -23,13 +24,15 @@ def create_new_user():
 
 USER_MEMORY = {}
 
+
 def get_user_memory(user_id: str):
     return USER_MEMORY.get(user_id, {
-        "language": None,   # ⭐ add this
+        "language": None,
         "state": None,
+        "district": None,
         "issue": None,
         "time": None,
-        "stage": "LANGUAGE_SELECTION" # ⭐ start from language
+        "stage": "LANGUAGE_SELECTION"
     })
 
 def update_user_memory(user_id: str, key: str, value):

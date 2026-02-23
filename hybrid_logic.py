@@ -13,29 +13,42 @@ YES_WORDS = ["haan", "ha", "yes", "hanji", "hmm"]
 NO_WORDS = ["nahi", "no", "na"]
 
 ISSUE_TIPS = {
-        "Electricity": [
-            "Neighbour se confirm karein",
-            "MCB / main switch check karein",
-            "1–2 ghante wait karein"
-        ],
-
-        "Water": [
-            "Paani supply timing check karein",
-            "Tank / motor check karein",
-            "Nearby area me bhi problem hai kya confirm karein"
-        ],
-
-        "Road": [
-            "Location photo lekar complaint register karein",
-            "Nearby PWD office me report karein",
-            "Online portal par issue submit karein"
-        ]
-    }
+    "Electricity": [
+        "Neighbour se confirm karein",
+        "MCB / main switch check karein",
+        "1–2 ghante wait karein",
+    ],
+    "Water": [
+        "Paani supply timing check karein",
+        "Tank / motor check karein",
+        "Nearby area me bhi problem hai kya confirm karein",
+    ],
+    "Road": [
+        "Location photo lekar complaint register karein",
+        "Nearby PWD office me report karein",
+        "Online portal par issue submit karein",
+    ],
+}
 
 
+def get_department_for_location(state: str, issue: str, district: str | None = None):
+    """
+    Helper: first try district-specific department, then fall back to state-level.
+    """
+    if not state or not issue:
+        return None
 
+    state_info = STATE_DEPARTMENTS.get(state, {})
 
+    # Try district override if provided
+    if district:
+        districts = state_info.get("districts", {})
+        district_info = districts.get(district)
+        if district_info and issue in district_info:
+            return district_info[issue]
 
+    # Fallback to state-level department
+    return state_info.get(issue)
 
 def hybrid_decision(predicted_category: str, text: str, user_id: str):
 
@@ -175,10 +188,24 @@ def hybrid_decision(predicted_category: str, text: str, user_id: str):
             state = entities["state"]
             update_user_memory(user_id, "state", state)
 
+            # If we have district-wise data for this state, ask for district next
+            state_info = STATE_DEPARTMENTS.get(state, {})
+            districts = state_info.get("districts")
+
+            if districts:
+                update_user_memory(user_id, "stage", "ASK_DISTRICT")
+                district_list = " / ".join(sorted(districts.keys()))
+                return {
+                    "message": (
+                        "Theek hai 👍\n"
+                        f"Aap kis district / city se ho? ({district_list})"
+                    )
+                }
+
+            # If no district data, directly solve with state-level info
             issue = memory.get("issue")
             time = memory.get("time")
-
-            dept = STATE_DEPARTMENTS.get(state, {}).get(issue)
+            dept = get_department_for_location(state, issue)
 
             if dept:
 
@@ -208,11 +235,54 @@ def hybrid_decision(predicted_category: str, text: str, user_id: str):
         # fallback
         return {"message": "Apna state ya city batao (UP / Delhi / Bihar)"}
 
+    # =====================================================
+    # 🧠 STAGE 2B: ASK_DISTRICT
+    # =====================================================
+    if memory.get("stage") == "ASK_DISTRICT":
 
+        if entities.get("district"):
+            district = entities["district"]
+            update_user_memory(user_id, "district", district)
 
+            issue = memory.get("issue")
+            time = memory.get("time")
+            state = memory.get("state")
 
+            dept = get_department_for_location(state, issue, district)
 
-    
+            if not dept:
+                # Fallback to state-level info if district specific data not found
+                dept = get_department_for_location(state, issue)
+
+            if dept:
+                tips = ISSUE_TIPS.get(issue, [])
+                tips_text = "\n".join([f"• {tip}" for tip in tips])
+
+                update_user_memory(user_id, "stage", "ASK_ANOTHER_ISSUE")
+
+                location_label = f"{state} / {district}" if district else state
+
+                return {
+                    "category": issue,
+                    "intent": "COMPLAINT_SOLVED",
+                    "state": state,
+                    "message": (
+                        f"{issue.upper()} PROBLEM – {location_label}\n\n"
+                        f"Problem time: {time}\n\n"
+                        f"📞 Helpline: {dept['contact']}\n"
+                        f"⏰ Timing: {dept['timing']}\n"
+                        f"📞 Info: {dept['info']}\n"
+                        f"🌐 Portal: {dept['portal']}\n\n"
+                        f"Helpful Steps:\n{tips_text}\n\n"
+                        "Kya aapko koi aur problem bhi hai? (haan / nahi)"
+                    )
+                }
+
+            return {"message": "Is district ke liye specific info nahi mili, lekin aap state level helpline se contact kar sakte hain."}
+
+        return {
+            "message": "Mujhe aapka district samajh nahi aaya. Kripya district / city ka naam likhiye (jaise Lucknow, Kanpur, Patna)."
+        }
     
     # =====================================================
     # 🧠 STAGE: ASK_ANOTHER_ISSUE
@@ -283,8 +353,9 @@ def hybrid_decision(predicted_category: str, text: str, user_id: str):
         issue = memory["issue"]
         state = memory["state"]
         time = memory["time"]
+        district = memory.get("district")
 
-        dept = STATE_DEPARTMENTS.get(state, {}).get(issue)
+        dept = get_department_for_location(state, issue, district)
 
         if dept:
 
@@ -294,14 +365,16 @@ def hybrid_decision(predicted_category: str, text: str, user_id: str):
             # ⭐ next stage set karo
             update_user_memory(user_id, "stage", "ASK_ANOTHER_ISSUE")
 
+            location_label = f"{state} / {district}" if district else state
+
             return {
                 "category": issue,
                 "intent": "COMPLAINT_SOLVED",
                 "state": state,
                 "message": (
-                    f"{issue.upper()} PROBLEM – {state}\n\n"
+                    f"{issue.upper()} PROBLEM – {location_label}\n\n"
                     f"Problem time: {time}\n\n"
-                    f"📞 Helpline: {dept['phone']}\n"
+                    f"📞 Helpline: {dept['contact']}\n"
                     f"⏰ Timing: {dept['timing']}\n"
                     f"🌐 Portal: {dept['portal']}\n\n"
                     f"Helpful Steps:\n{tips_text}\n\n"
