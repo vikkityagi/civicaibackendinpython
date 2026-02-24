@@ -86,9 +86,31 @@ def hybrid_decision(predicted_category: str, text: str, user_id: str):
     # =====================================================
     if memory.get("stage") == "LANGUAGE_SELECTION":
 
+        # If user already described an issue before choosing language,
+        # remember it so we can continue the flow immediately after language is selected.
+        if entities.get("issue") and not memory.get("issue"):
+            update_user_memory(user_id, "pending_issue", entities["issue"])
+
+        pending_issue = memory.get("pending_issue")
+
         # Hindi selected
         if any(w in text_lower for w in LANGUAGE_WORDS["hi"]):
             update_user_memory(user_id, "language", "hi")
+
+            # If there was a pending issue, jump directly to ASK_TIME
+            if pending_issue and not memory.get("issue"):
+                update_user_memory(user_id, "issue", pending_issue)
+                update_user_memory(user_id, "pending_issue", None)
+                update_user_memory(user_id, "stage", "ASK_TIME")
+
+                return {
+                    "message": (
+                        f"Samajh gaya 👍 Aapko {pending_issue} ki problem ho rahi hai.\n"
+                        "Yeh problem kab se hai?\n"
+                        "(abhi, subah se, ya roz hoti hai?)"
+                    )
+                }
+
             update_user_memory(user_id, "stage", "GREETING")
 
             return {
@@ -98,6 +120,20 @@ def hybrid_decision(predicted_category: str, text: str, user_id: str):
         # English selected
         if any(w in text_lower for w in LANGUAGE_WORDS["en"]):
             update_user_memory(user_id, "language", "en")
+
+            if pending_issue and not memory.get("issue"):
+                update_user_memory(user_id, "issue", pending_issue)
+                update_user_memory(user_id, "pending_issue", None)
+                update_user_memory(user_id, "stage", "ASK_TIME")
+
+                return {
+                    "message": (
+                        f"Got it 👍 You are facing a {pending_issue} problem.\n"
+                        "Since when is this problem happening?\n"
+                        "(right now, since morning, or happens daily?)"
+                    )
+                }
+
             update_user_memory(user_id, "stage", "GREETING")
 
             return {
@@ -295,6 +331,8 @@ def hybrid_decision(predicted_category: str, text: str, user_id: str):
             update_user_memory(user_id, "issue", None)
             update_user_memory(user_id, "time", None)
             update_user_memory(user_id, "state", None)
+            update_user_memory(user_id, "district", None)
+            update_user_memory(user_id, "district_options", None)
             update_user_memory(user_id, "stage", "idle")
 
             return {
